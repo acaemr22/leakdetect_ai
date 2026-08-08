@@ -1,0 +1,16 @@
+# Model artifacts — too large for git, hosted on Hugging Face Hub instead
+*.joblib
+*.keras
+*.npz
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Editor/OS
+.DS_Store
+
+# Claude Code session data
+.claude/

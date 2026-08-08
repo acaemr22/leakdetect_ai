@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LeakDB Hanoi — Leak Detector</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff; --fg: #1a1a1a; --muted: #666; --border: #ddd;
+    --leak: #d64545; --safe: #2f9e44; --accent: #2563eb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14161a; --fg: #eaeaea; --muted: #9a9a9a; --border: #333; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    max-width: 780px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem;
+    line-height: 1.5;
+  }
+  h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+  p.subtitle { color: var(--muted); margin-top: 0; }
+  .card {
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 1.25rem 1.5rem; margin: 1.25rem 0;
+  }
+  label { font-weight: 600; display: block; margin-bottom: 0.5rem; }
+  input[type="file"] { display: block; margin-bottom: 1rem; }
+  button {
+    background: var(--accent); color: #fff; border: none;
+    padding: 0.55rem 1.1rem; border-radius: 6px; cursor: pointer; font-size: 0.95rem;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  a.sample-link { color: var(--accent); text-decoration: none; font-size: 0.9rem; }
+  a.sample-link:hover { text-decoration: underline; }
+  table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); }
+  .badge {
+    display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px;
+    font-size: 0.8rem; font-weight: 600; color: #fff;
+  }
+  .badge.leak { background: var(--leak); }
+  .badge.no_leak { background: var(--safe); }
+  #summary { font-size: 1.05rem; margin-bottom: 0.5rem; }
+  #error { color: var(--leak); margin-top: 0.75rem; white-space: pre-wrap; }
+  .hint { color: var(--muted); font-size: 0.85rem; }
+</style>
+</head>
+<body>
+  <h1>LeakDB Hanoi — Leak Detector</h1>
+  <p class="subtitle">Random Forest classifier trained on the LeakDB Hanoi benchmark.</p>
+
+  <div class="card">
+    <label for="file">Upload a CSV of raw sensor readings</label>
+    <p class="hint">
+      Rows = timesteps (30-min intervals), 66 columns = sensor channels (pressures + flows),
+      same order as training data. At least 48 rows (24h) required.
+      &nbsp;<a class="sample-link" href="/sample-csv" download="sample.csv">Download synthetic sample CSV</a>
+    </p>
+    <input type="file" id="file" accept=".csv" />
+    <button id="submit">Run prediction</button>
+    <div id="error"></div>
+  </div>
+
+  <div class="card" id="results" style="display:none;">
+    <div id="summary"></div>
+    <table>
+      <thead>
+        <tr><th>Window</th><th>Rows</th><th>Leak probability</th><th>Prediction</th></tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+<script>
+const fileInput = document.getElementById('file');
+const submitBtn = document.getElementById('submit');
+const errorEl = document.getElementById('error');
+const resultsEl = document.getElementById('results');
+const summaryEl = document.getElementById('summary');
+const rowsEl = document.getElementById('rows');
+
+submitBtn.addEventListener('click', async () => {
+  errorEl.textContent = '';
+  resultsEl.style.display = 'none';
+
+  const file = fileInput.files[0];
+  if (!file) {
+    errorEl.textContent = 'Choose a CSV file first.';
+    return;
+  }
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Running...';
+
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch('/predict', { method: 'POST', body: formData });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || 'Prediction failed.');
+    }
+
+    summaryEl.innerHTML = data.any_leak_detected
+      ? `<span class="badge leak">LEAK DETECTED</span> in at least one window (max probability ${(data.max_leak_probability * 100).toFixed(1)}%) across ${data.n_windows} window(s).`
+      : `<span class="badge no_leak">NO LEAK</span> detected across ${data.n_windows} window(s) (max probability ${(data.max_leak_probability * 100).toFixed(1)}%).`;
+
+    rowsEl.innerHTML = data.windows.map(w => `
+      <tr>
+        <td>${w.window_index}</td>
+        <td>${w.start_row}–${w.end_row}</td>
+        <td>${(w.leak_probability * 100).toFixed(1)}%</td>
+        <td><span class="badge ${w.prediction}">${w.prediction === 'leak' ? 'Leak' : 'No leak'}</span></td>
+      </tr>
+    `).join('');
+
+    resultsEl.style.display = 'block';
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Run prediction';
+  }
+});
+</script>
+</body>
+</html>
